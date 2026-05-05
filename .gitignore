@@ -1,0 +1,8 @@
+/go/
+.env
+*.log
+degoo-cli
+degoo-cli.exe
+degoo-cli-*
+dist/
+*.test
