@@ -123,8 +123,13 @@ func Upload(client *api.Client, log *logger.Logger, localPath, remotePath string
 				break
 			}
 			if attempt < 3 {
-				log.Warn("[%d/%d] Failed to upload %s (attempt %d/3), retrying...", i+1, total, entry.localRel, attempt)
-				time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+				if api.IsAuthError(uploadErr) {
+					log.Warn("[%d/%d] Auth error uploading %s (attempt %d/3), refreshing token...", i+1, total, entry.localRel, attempt)
+					_ = client.Refresh()
+				} else {
+					log.Warn("[%d/%d] Failed to upload %s (attempt %d/3), retrying...", i+1, total, entry.localRel, attempt)
+					time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+				}
 			}
 		}
 		if uploadErr != nil {
@@ -219,8 +224,13 @@ func Download(client *api.Client, log *logger.Logger, remotePath, localPath stri
 				break
 			}
 			if attempt < 3 {
-				log.Warn("[%d/%d] Failed to download %s (attempt %d/3), retrying...", i+1, total, entry.file.Name, attempt)
-				time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+				if api.IsAuthError(downloadErr) {
+					log.Warn("[%d/%d] Auth error downloading %s (attempt %d/3), refreshing token...", i+1, total, entry.file.Name, attempt)
+					_ = client.Refresh()
+				} else {
+					log.Warn("[%d/%d] Failed to download %s (attempt %d/3), retrying...", i+1, total, entry.file.Name, attempt)
+					time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+				}
 			}
 		}
 		if downloadErr != nil {

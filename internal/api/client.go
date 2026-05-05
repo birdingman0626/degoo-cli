@@ -50,6 +50,27 @@ func (c *Client) WithRefresher(fn func() (string, error)) *Client {
 	return c
 }
 
+// Refresh proactively fetches a new JWT via the attached refreshFunc.
+// Returns nil if no refreshFunc is set or if refresh succeeds.
+func (c *Client) Refresh() error {
+	if c.refreshFunc == nil {
+		return nil
+	}
+	newToken, err := c.refreshFunc()
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.token = newToken
+	c.mu.Unlock()
+	return nil
+}
+
+// IsAuthError reports whether err looks like a Degoo "Not Authorized" response.
+func IsAuthError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Not Authorized")
+}
+
 // graphql executes a GraphQL operation and unmarshals the data field into out.
 // On "Not Authorized" errors it calls refreshFunc once to get a fresh JWT and retries.
 func (c *Client) graphql(operationName, query string, variables map[string]interface{}, out interface{}) error {
