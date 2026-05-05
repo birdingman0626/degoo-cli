@@ -53,7 +53,15 @@ var rootCmd = &cobra.Command{
 			if refreshErr == nil {
 				cache.AccessToken = newToken
 				_ = auth.SaveTokenCache(cache)
-				apiClient = api.NewClient(newToken)
+				refreshToken := cache.RefreshToken
+				apiClient = api.NewClient(newToken).WithRefresher(func() (string, error) {
+					tok, err := auth.RefreshAccessToken(refreshToken)
+					if err != nil {
+						return "", err
+					}
+					_ = auth.SaveTokenCache(&auth.TokenCache{AccessToken: tok, RefreshToken: refreshToken})
+					return tok, nil
+				})
 				return nil
 			}
 			log.Warn("Token refresh failed (%v), re-logging in", refreshErr)
@@ -71,7 +79,15 @@ var rootCmd = &cobra.Command{
 		if err := auth.SaveTokenCache(tokens); err != nil {
 			log.Warn("Could not save token cache: %v", err)
 		}
-		apiClient = api.NewClient(tokens.AccessToken)
+		refreshToken := tokens.RefreshToken
+		apiClient = api.NewClient(tokens.AccessToken).WithRefresher(func() (string, error) {
+			tok, err := auth.RefreshAccessToken(refreshToken)
+			if err != nil {
+				return "", err
+			}
+			_ = auth.SaveTokenCache(&auth.TokenCache{AccessToken: tok, RefreshToken: refreshToken})
+			return tok, nil
+		})
 		log.Info("Logged in as %s", creds.Email)
 		return nil
 	},

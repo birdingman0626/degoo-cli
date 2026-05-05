@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-
 )
 
 const (
@@ -33,7 +33,9 @@ type FileInfo struct {
 
 // Client is a Degoo GraphQL API client.
 type Client struct {
-	token string
+	mu          sync.Mutex
+	token       string
+	refreshFunc func() (string, error) // called on auth failures to get a fresh JWT
 }
 
 // NewClient creates a new API client using the given access token.
@@ -41,8 +43,39 @@ func NewClient(token string) *Client {
 	return &Client{token: token}
 }
 
+// WithRefresher attaches a token-refresh callback. When a GraphQL call returns
+// "Not Authorized", the client calls fn to get a fresh JWT and retries once.
+func (c *Client) WithRefresher(fn func() (string, error)) *Client {
+	c.refreshFunc = fn
+	return c
+}
+
 // graphql executes a GraphQL operation and unmarshals the data field into out.
+// On "Not Authorized" errors it calls refreshFunc once to get a fresh JWT and retries.
 func (c *Client) graphql(operationName, query string, variables map[string]interface{}, out interface{}) error {
+	err := c.doGraphQL(operationName, query, variables, out)
+	if err != nil && strings.Contains(err.Error(), "Not Authorized") && c.refreshFunc != nil {
+		newToken, refreshErr := c.refreshFunc()
+		if refreshErr == nil {
+			c.mu.Lock()
+			c.token = newToken
+			c.mu.Unlock()
+			if _, hasToken := variables["Token"]; hasToken {
+				variables["Token"] = newToken
+			}
+			err = c.doGraphQL(operationName, query, variables, out)
+		}
+	}
+	return err
+}
+
+// doGraphQL performs one raw GraphQL POST without any retry logic.
+func (c *Client) doGraphQL(operationName, query string, variables map[string]interface{}, out interface{}) error {
+	c.mu.Lock()
+	token := c.token
+	c.mu.Unlock()
+	_ = token // token is read via variables["Token"]; stored here for future use
+
 	body := map[string]interface{}{
 		"operationName": operationName,
 		"variables":     variables,
