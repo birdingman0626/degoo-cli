@@ -625,11 +625,11 @@ func (c *Client) DownloadFile(url string, dst io.Writer) error {
 	return err
 }
 
-// renameFileMutation renames a file or folder in place.
-// ID is the string file ID (not IDType); NewName is the new display name.
+// renameFileMutation renames one or more files/folders in place.
+// FileRenames is a list of {ID, NewName} objects (server-side type: FileRename).
 const renameFileMutation = `
-mutation setRenameFile($Token: String!, $ID: String!, $NewName: String!) {
-  setRenameFile(Token: $Token, ID: $ID, NewName: $NewName)
+mutation setRenameFile($Token: String!, $FileRenames: [FileRename]!) {
+  setRenameFile(Token: $Token, FileRenames: $FileRenames)
 }`
 
 // RenameFile renames the file or folder with the given ID to newName.
@@ -638,9 +638,10 @@ func (c *Client) RenameFile(id, newName string) error {
 		SetRenameFile bool `json:"setRenameFile"`
 	}
 	if err := c.graphql("setRenameFile", renameFileMutation, map[string]interface{}{
-		"Token":   c.token,
-		"ID":      id,
-		"NewName": newName,
+		"Token": c.token,
+		"FileRenames": []map[string]interface{}{
+			{"ID": id, "NewName": newName},
+		},
 	}, &result); err != nil {
 		return fmt.Errorf("setRenameFile: %w", err)
 	}
