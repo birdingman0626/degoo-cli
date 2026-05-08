@@ -625,25 +625,67 @@ func (c *Client) DownloadFile(url string, dst io.Writer) error {
 	return err
 }
 
-// renameFileMutation renames one or more files/folders in place.
-// FileRenames is a list of {ID, NewName} objects (server-side type: FileRename).
-const renameFileMutation = `
-mutation setRenameFile($Token: String!, $FileRenames: [FileRename]!) {
-  setRenameFile(Token: $Token, FileRenames: $FileRenames)
-}`
-
 // RenameFile renames the file or folder with the given ID to newName.
+// FileRenames is inlined in the query string to avoid declaring the unknown input type.
 func (c *Client) RenameFile(id, newName string) error {
+	c.mu.Lock()
+	token := c.token
+	c.mu.Unlock()
+
+	// Escape values for inline GraphQL literal embedding.
+	escapedID := strings.ReplaceAll(id, `"`, `\"`)
+	escapedName := strings.ReplaceAll(newName, `"`, `\"`)
+	escapedToken := strings.ReplaceAll(token, `"`, `\"`)
+
+	query := fmt.Sprintf(`mutation {
+  setRenameFile(Token: "%s", FileRenames: [{ID: "%s", NewName: "%s"}])
+}`, escapedToken, escapedID, escapedName)
+
+	body := map[string]interface{}{
+		"operationName": "setRenameFile",
+		"variables":     map[string]interface{}{},
+		"query":         query,
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal rename request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, graphqlURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, raw)
+	}
+
+	var rawResult struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(raw, &rawResult); err != nil {
+		return fmt.Errorf("decode rename response: %w", err)
+	}
+	if len(rawResult.Errors) > 0 {
+		return fmt.Errorf("setRenameFile: graphql error: %s", rawResult.Errors[0].Message)
+	}
+
 	var result struct {
 		SetRenameFile bool `json:"setRenameFile"`
 	}
-	if err := c.graphql("setRenameFile", renameFileMutation, map[string]interface{}{
-		"Token": c.token,
-		"FileRenames": []map[string]interface{}{
-			{"ID": id, "NewName": newName},
-		},
-	}, &result); err != nil {
-		return fmt.Errorf("setRenameFile: %w", err)
+	if err := json.Unmarshal(rawResult.Data, &result); err != nil {
+		return fmt.Errorf("decode rename data: %w", err)
 	}
 	if !result.SetRenameFile {
 		return fmt.Errorf("setRenameFile: server returned false")
