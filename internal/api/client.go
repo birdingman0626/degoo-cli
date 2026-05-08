@@ -626,7 +626,9 @@ func (c *Client) DownloadFile(url string, dst io.Writer) error {
 }
 
 // RenameFile renames the file or folder with the given ID to newName.
-// FileRenames is inlined in the query string to avoid declaring the unknown input type.
+// The FileRenames input type is not exposed in the schema, so values are
+// inlined directly in the query string. The mutation must be named to match
+// AppSync's operationName routing.
 func (c *Client) RenameFile(id, newName string) error {
 	c.mu.Lock()
 	token := c.token
@@ -637,7 +639,9 @@ func (c *Client) RenameFile(id, newName string) error {
 	escapedName := strings.ReplaceAll(newName, `"`, `\"`)
 	escapedToken := strings.ReplaceAll(token, `"`, `\"`)
 
-	query := fmt.Sprintf(`mutation {
+	// Named mutation is required: AppSync routes by operationName which must
+	// match the mutation name declared in the query string.
+	query := fmt.Sprintf(`mutation setRenameFile {
   setRenameFile(Token: "%s", FileRenames: [{ID: "%s", NewName: "%s"}])
 }`, escapedToken, escapedID, escapedName)
 
